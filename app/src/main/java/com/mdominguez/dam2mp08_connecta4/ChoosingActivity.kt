@@ -22,6 +22,7 @@ class ChoosingActivity : AppCompatActivity() {
     private val connectedUsers = mutableListOf<String>()
     private lateinit var myApp: MyApp
     private var currentUserName = ""
+    private var isProcessingInvitation = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,7 +43,7 @@ class ChoosingActivity : AppCompatActivity() {
         spinnerJugadores = findViewById<Spinner>(R.id.spinnerJugadores)
         txtStatus = findViewById<TextView>(R.id.txtStatus)
 
-        // Reset completo del estado
+        // Reset del estado
         resetChoosingState()
 
         // Procesar lista inicial SI existe
@@ -80,15 +81,21 @@ class ChoosingActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Reset cada vez que la actividad se hace visible
+        Log.d("CHOOSING", "🎯 onResume - Reiniciando estado")
         resetChoosingState()
-        Log.d("CHOOSING", "🔁 Activity resumida - Estado limpio")
+        requestClientsList()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.d("CHOOSING", "🎯 onPause - Limpiando estado")
+        isProcessingInvitation = false
     }
 
     private fun resetChoosingState() {
-        // NO usar variable isProcessingInvitation - resetear completamente
+        isProcessingInvitation = false
         clearStatusMessages()
-        Log.d("CHOOSING", "🔄 ESTADO COMPLETAMENTE RESETADO")
+        Log.d("CHOOSING", "🔄 Estado reseteado")
     }
 
     private fun clearStatusMessages() {
@@ -121,62 +128,22 @@ class ChoosingActivity : AppCompatActivity() {
                 "userJoined" -> {
                     val userName = jsonObject.optString("userName", "")
                     Log.d("CHOOSING", "👤 Usuario conectado: $userName")
-                    // Pedir lista actualizada al servidor
                     requestClientsList()
                 }
                 "userLeft" -> {
                     val userName = jsonObject.optString("userName", "")
                     Log.d("CHOOSING", "🚪 Usuario desconectado: $userName")
-                    // Pedir lista actualizada al servidor
                     requestClientsList()
                 }
                 "invite to play" -> {
-                    val origin = jsonObject.optString("origin", "")
-                    val messageText = jsonObject.optString("message", "")
-                    Log.d("CHOOSING", "🎮 Invitación recibida de: $origin")
-
-                    runOnUiThread {
-                        showInvitationAlert(origin, messageText)
-                    }
+                    handleInvitationReceived(jsonObject)
                 }
                 "invite response" -> {
-                    val origin = jsonObject.optString("origin", "")
-                    val accepted = jsonObject.optBoolean("accepted", false)
-                    Log.d("CHOOSING", "📨 Respuesta de invitación: $origin - $accepted")
-
-                    runOnUiThread {
-                        if (accepted) {
-                            txtStatus.text = "$origin aceptó tu invitación!"
-                            if (!isFinishing) {
-                                goToPairing(origin, isInviter = true)
-                            }
-                        } else {
-                            txtStatus.text = "$origin rechazó tu invitación"
-                            showTemporaryAlert("$origin ha rechazado tu invitación")
-                            android.os.Handler().postDelayed({
-                                resetChoosingState()
-                            }, 2000)
-                        }
-                    }
+                    handleInvitationResponse(jsonObject)
                 }
-                "nameClient" -> {
-                    val player1 = jsonObject.optString("player1", "")
-                    val player2 = jsonObject.optString("player2", "")
-                    Log.d("CHOOSING", "🎯 Emparejamiento confirmado: $player1 vs $player2")
-
-                    if (player1 == currentUserName || player2 == currentUserName) {
-                        val opponent = if (player1 == currentUserName) player2 else player1
-                        val isInviter = (player1 == currentUserName)
-
-                        Log.d("CHOOSING", "🎯 Rol detectado: ${if (isInviter) "INVITADOR" else "INVITADO"}")
-
-                        runOnUiThread {
-                            goToPairing(opponent, isInviter)
-                        }
-                    }
-                }
+                // ⚠️ ELIMINADO completamente el manejo de nameClient
                 "entersPlayer1", "entersPlayer2" -> {
-                    Log.d("CHOOSING", "🚪 Jugador entró al emparejamiento")
+                    Log.d("CHOOSING", "🚪 Mensaje de emparejamiento: $type - IGNORADO")
                 }
             }
         } catch (e: Exception) {
@@ -184,8 +151,55 @@ class ChoosingActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleInvitationReceived(jsonObject: JSONObject) {
+        val origin = jsonObject.optString("origin", "")
+        val messageText = jsonObject.optString("message", "")
+
+        Log.d("CHOOSING", "🎯 INVITACIÓN RECIBIDA de: $origin")
+
+        // Si ya estamos procesando una invitación, ignorar esta
+        if (isProcessingInvitation) {
+            Log.d("CHOOSING", "⚠️ IGNORANDO invitación - Ya hay una en proceso")
+            return
+        }
+
+        // Marcar que estamos procesando esta invitación
+        isProcessingInvitation = true
+
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed) {
+                Log.d("CHOOSING", "🎯 Mostrando alerta de invitación")
+                showInvitationAlert(origin, messageText)
+            } else {
+                Log.d("CHOOSING", "⚠️ Activity no activa - No se muestra alerta")
+                resetChoosingState()
+            }
+        }
+    }
+
+    private fun handleInvitationResponse(jsonObject: JSONObject) {
+        val origin = jsonObject.optString("origin", "")
+        val accepted = jsonObject.optBoolean("accepted", false)
+
+        Log.d("CHOOSING", "📨 RESPUESTA de invitación: $origin - Aceptada: $accepted")
+
+        runOnUiThread {
+            if (accepted) {
+                txtStatus.text = "$origin aceptó tu invitación!"
+                // Como INVITADOR, vamos directamente a Pairing después de recibir aceptación
+                if (!isFinishing && !isDestroyed) {
+                    Log.d("CHOOSING", "🎯 Como INVITADOR, yendo a Pairing después de aceptación")
+                    goToPairing(origin, isInviter = true)
+                }
+            } else {
+                txtStatus.text = "$origin rechazó tu invitación"
+                showTemporaryAlert("$origin ha rechazado tu invitación")
+                resetChoosingState()
+            }
+        }
+    }
+
     private fun requestClientsList() {
-        // Enviar mensaje al servidor para solicitar lista actualizada
         val request = JSONObject().apply {
             put("type", "getClients")
         }
@@ -195,10 +209,12 @@ class ChoosingActivity : AppCompatActivity() {
 
     private fun showTemporaryAlert(message: String) {
         runOnUiThread {
-            AlertDialog.Builder(this)
-                .setMessage(message)
-                .setPositiveButton("OK", null)
-                .show()
+            if (!isFinishing && !isDestroyed) {
+                AlertDialog.Builder(this)
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
         }
     }
 
@@ -206,7 +222,6 @@ class ChoosingActivity : AppCompatActivity() {
         runOnUiThread {
             try {
                 Log.d("CHOOSING", "📋 Procesando lista de ${listArray.length()} clientes")
-                val previousCount = connectedUsers.size
                 connectedUsers.clear()
 
                 if (listArray.length() > 0) {
@@ -218,7 +233,7 @@ class ChoosingActivity : AppCompatActivity() {
                     }
                     updateSpinner()
                     updateStatus()
-                    Log.d("CHOOSING", "✅ Lista actualizada: ${connectedUsers.size} jugador(es) - Antes: $previousCount")
+                    Log.d("CHOOSING", "✅ Lista actualizada: ${connectedUsers.size} jugador(es)")
                 } else {
                     connectedUsers.clear()
                     updateSpinner()
@@ -233,7 +248,11 @@ class ChoosingActivity : AppCompatActivity() {
     }
 
     private fun goToPairing(opponent: String, isInviter: Boolean) {
-        Log.d("CHOOSING", "🎯 Redirigiendo a PairingActivity como ${if (isInviter) "INVITADOR" else "INVITADO"}")
+        Log.d("CHOOSING", "🎯 REDIRIGIENDO a PairingActivity - Rol: ${if (isInviter) "INVITADOR" else "INVITADO"}, Opponent: $opponent")
+
+        // Limpiar estado antes de ir a Pairing
+        isProcessingInvitation = false
+
         val intent = Intent(this, PairingActivity::class.java).apply {
             putExtra("playerName", currentUserName)
             putExtra("opponentName", opponent)
@@ -269,6 +288,8 @@ class ChoosingActivity : AppCompatActivity() {
     }
 
     private fun sendInvitation(opponent: String) {
+        Log.d("CHOOSING", "✉️ ENVIANDO invitación a: $opponent")
+
         runOnUiThread {
             txtStatus.text = "Enviando invitación a $opponent..."
         }
@@ -279,65 +300,98 @@ class ChoosingActivity : AppCompatActivity() {
             put("message", "¿Quieres jugar Connecta4?")
         }
         myApp.sendWebSocketMessage(invitation.toString())
-        Log.d("INVITATION", "✉️ Invitación enviada a: $opponent")
 
-        goToPairing(opponent, isInviter = true)
+        // ✅ Como INVITADOR, vamos DIRECTAMENTE a Pairing después de enviar invitación
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed) {
+                Log.d("CHOOSING", "🎯 Como INVITADOR, yendo a Pairing inmediatamente")
+                goToPairing(opponent, isInviter = true)
+            }
+        }
     }
 
     private fun showInvitationAlert(origin: String, message: String) {
-        Log.d("CHOOSING", "🎯 Mostrando alerta de invitación de: $origin")
+        Log.d("CHOOSING", "🎯 MOSTRANDO ALERTA de invitación de: $origin")
 
         runOnUiThread {
-            AlertDialog.Builder(this)
-                .setTitle("Invitación de $origin")
-                .setMessage(message)
-                .setPositiveButton("Aceptar") { dialog, which ->
-                    Log.d("CHOOSING", "✅ Usuario aceptó invitación de: $origin")
-                    val response = JSONObject().apply {
-                        put("type", "invite response")
-                        put("destination", origin)
-                        put("accepted", true)
+            if (isFinishing || isDestroyed) {
+                Log.d("CHOOSING", "⚠️ Activity no activa - No se muestra alerta")
+                resetChoosingState()
+                return@runOnUiThread
+            }
+
+            try {
+                val alertDialog = AlertDialog.Builder(this)
+                    .setTitle("Invitación de $origin")
+                    .setMessage(message)
+                    .setPositiveButton("Aceptar") { dialog, which ->
+                        Log.d("CHOOSING", "✅ USUARIO ACEPTÓ invitación de: $origin")
+
+                        // Enviar respuesta de aceptación
+                        val response = JSONObject().apply {
+                            put("type", "invite response")
+                            put("destination", origin)
+                            put("accepted", true)
+                        }
+                        myApp.sendWebSocketMessage(response.toString())
+
+                        runOnUiThread {
+                            txtStatus.text = "Aceptaste la invitación de $origin"
+                            Log.d("CHOOSING", "🎯 Como INVITADO, yendo a Pairing después de aceptar")
+                            // ✅ Como INVITADO, vamos a Pairing inmediatamente después de aceptar
+                            goToPairing(origin, isInviter = false)
+                        }
                     }
-                    myApp.sendWebSocketMessage(response.toString())
-                    runOnUiThread {
-                        txtStatus.text = "Aceptaste la invitación de $origin"
+                    .setNegativeButton("Rechazar") { dialog, which ->
+                        Log.d("CHOOSING", "❌ USUARIO RECHAZÓ invitación de: $origin")
+
+                        val response = JSONObject().apply {
+                            put("type", "invite response")
+                            put("destination", origin)
+                            put("accepted", false)
+                        }
+                        myApp.sendWebSocketMessage(response.toString())
+
+                        runOnUiThread {
+                            txtStatus.text = "Rechazaste la invitación"
+                            resetChoosingState()
+                        }
                     }
-                    // Ir directamente a Pairing como INVITADO después de aceptar
-                    android.os.Handler().postDelayed({
-                        goToPairing(origin, isInviter = false)
-                    }, 500)
-                }
-                .setNegativeButton("Rechazar") { dialog, which ->
-                    Log.d("CHOOSING", "❌ Usuario rechazó invitación de: $origin")
-                    val response = JSONObject().apply {
-                        put("type", "invite response")
-                        put("destination", origin)
-                        put("accepted", false)
+                    .setOnCancelListener {
+                        Log.d("CHOOSING", "❌ DIÁLOGO CANCELADO - Considerado como rechazo")
+
+                        val response = JSONObject().apply {
+                            put("type", "invite response")
+                            put("destination", origin)
+                            put("accepted", false)
+                        }
+                        myApp.sendWebSocketMessage(response.toString())
+
+                        runOnUiThread {
+                            txtStatus.text = "Invitación cancelada"
+                            resetChoosingState()
+                        }
                     }
-                    myApp.sendWebSocketMessage(response.toString())
-                    runOnUiThread {
-                        txtStatus.text = "Rechazaste la invitación"
-                    }
-                    android.os.Handler().postDelayed({
-                        resetChoosingState()
-                    }, 2000)
-                }
-                .setOnCancelListener {
-                    // Si el usuario cancela el diálogo, resetear estado
-                    Log.d("CHOOSING", "❌ Diálogo cancelado - Reseteando estado")
-                    resetChoosingState()
-                }
-                .setCancelable(true)
-                .show()
+                    .setCancelable(true)
+                    .create()
+
+                alertDialog.show()
+
+            } catch (e: Exception) {
+                Log.e("CHOOSING", "❌ Error mostrando alerta: ${e.message}")
+                resetChoosingState()
+            }
         }
     }
 
     private fun showAlert(message: String) {
         runOnUiThread {
-            AlertDialog.Builder(this)
-                .setMessage(message)
-                .setPositiveButton("OK", null)
-                .show()
+            if (!isFinishing && !isDestroyed) {
+                AlertDialog.Builder(this)
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
         }
     }
 }

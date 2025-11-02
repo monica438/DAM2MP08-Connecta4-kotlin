@@ -79,8 +79,8 @@ class CountdownActivity : AppCompatActivity() {
         countdownValue.text = if (value == 0) "¡GO!" else value.toString()
 
         if (value == 0) {
-            // Esperar un segundo y luego ir al juego
-            android.os.Handler().postDelayed({
+            // Esperar un segundo y luego ir al juego usando postDelayed de la view
+            countdownValue.postDelayed({
                 goToGame()
             }, 1000)
         }

@@ -33,9 +33,9 @@ class ResultsActivity : AppCompatActivity() {
 
         val backBtn = findViewById<Button>(R.id.backBtn)
         backBtn.setOnClickListener {
-            // Volver a ChoosingActivity con CLEAR completo
+            // Volver a ChoosingActivity solicitando lista actualizada
             val intent = Intent(this, ChoosingActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NEW_TASK
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("currentPlayerName", myApp.currentPlayerName)
             }
             startActivity(intent)

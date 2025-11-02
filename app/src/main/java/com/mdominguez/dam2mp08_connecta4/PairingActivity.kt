@@ -17,6 +17,7 @@ class PairingActivity : AppCompatActivity() {
     private var opponentName: String = "?"
     private var invitationAccepted = false
     private var isInviter = false
+    private var invitationRejected = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +51,7 @@ class PairingActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.player1Pairing).text = player1Name
             findViewById<TextView>(R.id.player2Pairing).text = "?"
             updateStatus("Esperando respuesta de $intendedOpponent...")
+            opponentName = intendedOpponent
         } else {
             // SOMOS EL INVITADO: mostramos ambos nombres conocidos
             findViewById<TextView>(R.id.player1Pairing).text = intendedOpponent
@@ -85,9 +87,14 @@ class PairingActivity : AppCompatActivity() {
                                 opponentName = origin
                                 findViewById<TextView>(R.id.player2Pairing).text = origin
                                 updateStatus("¡$origin aceptó! Preparando juego...")
+
+                                // El otro jugador aceptó, podemos continuar
+                                checkIfCanProceed()
                             } else {
+                                invitationRejected = true
                                 updateStatus("$origin rechazó tu invitación")
-                                android.os.Handler().postDelayed({
+                                // Usar postDelayed de la view
+                                findViewById<TextView>(R.id.statusPairing)?.postDelayed({
                                     returnToChoosing()
                                 }, 1500)
                             }
@@ -104,6 +111,12 @@ class PairingActivity : AppCompatActivity() {
                         findViewById<TextView>(R.id.player2Pairing).text = player2
                         opponentName = if (player1 == player1Name) player2 else player1
                         updateStatus("Emparejamiento confirmado - Iniciando juego...")
+
+                        if (!isInviter) {
+                            // Como invitado, estamos listos para proceder
+                            invitationAccepted = true
+                            checkIfCanProceed()
+                        }
                     }
                 }
                 "entersPlayer1", "entersPlayer2" -> {
@@ -140,20 +153,44 @@ class PairingActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkIfCanProceed() {
+        if (isInviter) {
+            // Como invitador, necesitamos que la invitación sea aceptada
+            if (invitationAccepted && !invitationRejected) {
+                // Esperar un poco antes de proceder para que el usuario vea la confirmación
+                findViewById<TextView>(R.id.statusPairing)?.postDelayed({
+                    goToCountdown()
+                }, 1000)
+            }
+        } else {
+            // Como invitado, proceder directamente
+            if (invitationAccepted) {
+                findViewById<TextView>(R.id.statusPairing)?.postDelayed({
+                    goToCountdown()
+                }, 1000)
+            }
+        }
+    }
+
     private fun returnToChoosing() {
-        Log.d("PAIRING", "🔙 Volviendo a ChoosingActivity")
+        Log.d("PAIRING", "🔙 Volviendo a ChoosingActivity - Invitación rechazada")
         val intent = Intent(this, ChoosingActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("currentPlayerName", myApp.currentPlayerName)
         }
         startActivity(intent)
         finish()
     }
 
     private fun goToCountdown() {
+        if (invitationRejected) {
+            return // No proceder si la invitación fue rechazada
+        }
+
         val canProceed = if (isInviter) {
-            invitationAccepted && opponentName != "?"
+            invitationAccepted && opponentName != "?" && !invitationRejected
         } else {
-            invitationAccepted
+            invitationAccepted && !invitationRejected
         }
 
         if (canProceed) {

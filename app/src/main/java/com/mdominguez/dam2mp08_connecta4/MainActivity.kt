@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private var myRole = ""
     private var isMyTurn = false
     private var gameStarted = false
+    private var gameFinished = false // Nueva variable para controlar estado de partida terminada
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,27 +101,35 @@ class MainActivity : AppCompatActivity() {
 
                     isMyTurn = turnPlayer == myPlayerName
 
+                    // Resetear estado finished si el juego vuelve a empezar
+                    if (status == "playing" && gameFinished) {
+                        gameFinished = false
+                    }
+
                     // El juego ha comenzado cuando el estado es "playing"
                     gameStarted = (status == "playing")
 
-                    Log.d("GAME", "Estado: $status, Mi turno: $isMyTurn, GameStarted: $gameStarted, TurnPlayer: $turnPlayer")
+                    Log.d("GAME", "Estado: $status, Mi turno: $isMyTurn, GameStarted: $gameStarted, GameFinished: $gameFinished")
 
                     when (status) {
                         "playing" -> {
                             updateBoard(game.optJSONArray("board"))
                             updateTurnInfo()
                         }
-                        "win" -> {
-                            updateBoard(game.optJSONArray("board"))
-                            if (winner == myPlayerName) {
-                                goToResults("¡HAS GANADO!")
-                            } else {
-                                goToResults("$winner ha ganado")
+                        "win", "draw" -> {
+                            if (!gameFinished) {
+                                updateBoard(game.optJSONArray("board"))
+                                gameFinished = true
+                                if (status == "win") {
+                                    if (winner == myPlayerName) {
+                                        goToResults("¡HAS GANADO!")
+                                    } else {
+                                        goToResults("$winner ha ganado")
+                                    }
+                                } else {
+                                    goToResults("¡EMPATE!")
+                                }
                             }
-                        }
-                        "draw" -> {
-                            updateBoard(game.optJSONArray("board"))
-                            goToResults("¡EMPATE!")
                         }
                         else -> {
                             // Estado COUNTDOWN o waiting
