@@ -12,7 +12,6 @@ import android.widget.TableLayout
 import android.widget.TableRow
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
@@ -20,6 +19,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
+
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -107,6 +111,7 @@ class MainActivity : AppCompatActivity() {
                     val status = game.optString("status", "")
                     val turnPlayer = game.optString("turn", "")
                     val winner = game.optString("winner", "")
+                    val boardArray = game.optJSONArray("board")
 
                     isMyTurn = turnPlayer == myPlayerName
 
@@ -125,19 +130,39 @@ class MainActivity : AppCompatActivity() {
                             updateBoard(game.optJSONArray("board"))
                             updateTurnInfo()
                         }
-                        "win", "draw" -> {
+                        "win" -> {
                             if (!gameFinished) {
-                                updateBoard(game.optJSONArray("board"))
+                                updateBoard(boardArray)
                                 gameFinished = true
-                                if (status == "win") {
+
+                                val winningPositions = findWinningPositions(boardArray)
+                                if (winningPositions.isNotEmpty()) {
+                                    highlightWinningPieces(winningPositions, boardArray)
+
+                                    // Usar LifecycleScope para el delay
+                                    lifecycleScope.launch {
+                                        delay(5000) // Esperar 5 segundos
+                                        if (winner == myPlayerName) {
+                                            goToResults("¡HAS GANADO!")
+                                        } else {
+                                            goToResults("$winner ha ganado")
+                                        }
+                                    }
+                                } else {
+                                    // Si no se encuentran las posiciones ganadoras, ir directamente
                                     if (winner == myPlayerName) {
                                         goToResults("¡HAS GANADO!")
                                     } else {
                                         goToResults("$winner ha ganado")
                                     }
-                                } else {
-                                    goToResults("¡EMPATE!")
                                 }
+                            }
+                        }
+                        "draw" -> {
+                            if (!gameFinished) {
+                                updateBoard(boardArray)
+                                gameFinished = true
+                                goToResults("¡EMPATE!")
                             }
                         }
                         else -> {
@@ -149,6 +174,109 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e("MAIN_ACTIVITY", "Error procesando estado del juego: ${e.message}")
             }
+        }
+    }
+
+    private fun findWinningPositions(boardArray: JSONArray?): List<Pair<Int, Int>> {
+        val winningPositions = mutableListOf<Pair<Int, Int>>()
+        if (boardArray == null) return winningPositions
+
+        try {
+            val board = Array(files) { Array(columnes) { "" } }
+            for (fila in 0 until files) {
+                val rowArray = boardArray.getJSONArray(fila)
+                for (columna in 0 until columnes) {
+                    board[fila][columna] = rowArray.getString(columna)
+                }
+            }
+
+            val directions = arrayOf(
+                Pair(0, 1),  // horizontal derecha
+                Pair(1, 0),  // vertical abajo
+                Pair(1, 1),  // diagonal \ abajo-derecha
+                Pair(1, -1)  // diagonal / abajo-izquierda
+            )
+
+            for (fila in 0 until files) {
+                for (columna in 0 until columnes) {
+                    val currentPiece = board[fila][columna]
+                    if (currentPiece != " " && currentPiece != "null" && currentPiece.isNotEmpty()) {
+                        for ((dirFila, dirColumna) in directions) {
+                            val positions = checkDirection(board, fila, columna, dirFila, dirColumna, currentPiece)
+                            if (positions.size >= 4) {
+                                winningPositions.addAll(positions)
+                                return winningPositions
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MAIN_ACTIVITY", "Error buscando posiciones ganadoras: ${e.message}")
+        }
+
+        return winningPositions
+    }
+
+    private fun checkDirection(
+        board: Array<Array<String>>,
+        startFila: Int,
+        startColumna: Int,
+        dirFila: Int,
+        dirColumna: Int,
+        piece: String
+    ): List<Pair<Int, Int>> {
+        val positions = mutableListOf<Pair<Int, Int>>()
+        var fila = startFila
+        var columna = startColumna
+        var count = 0
+
+        while (fila in 0 until files && columna in 0 until columnes && board[fila][columna] == piece) {
+            positions.add(Pair(fila, columna))
+            count++
+            if (count >= 4) {
+                return positions
+            }
+            fila += dirFila
+            columna += dirColumna
+        }
+
+        if (count < 4) {
+            positions.clear()
+        }
+
+        return positions
+    }
+
+    private fun highlightWinningPieces(winningPositions: List<Pair<Int, Int>>, boardArray: JSONArray?) {
+        if (boardArray == null) return
+
+        try {
+            updateBoard(boardArray)
+
+            for ((fila, columna) in winningPositions) {
+                val visualFila = fila + 1
+                if (visualFila < taulell.size && columna < taulell[visualFila].size) {
+                    val casella = taulell[visualFila][columna]
+
+                    val rowArray = boardArray.getJSONArray(fila)
+                    val cellValue = rowArray.getString(columna)
+
+                    when (cellValue) {
+                        "R" -> {
+                            casella.setImageResource(R.drawable.cercle_vermell_verd)
+                        }
+                        "Y" -> {
+                            casella.setImageResource(R.drawable.cercle_groc_verd)
+                        }
+                    }
+                }
+            }
+
+            findViewById<TextView>(R.id.turnoMain).text = "¡FICHAS GANADORAS!"
+
+        } catch (e: Exception) {
+            Log.e("MAIN_ACTIVITY", "Error resaltando fichas ganadoras: ${e.message}")
         }
     }
 
